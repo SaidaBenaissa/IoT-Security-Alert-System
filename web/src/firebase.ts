@@ -4,20 +4,11 @@ import { getDatabase } from "firebase/database";
 import { getAuth } from "firebase/auth";
 import { getAnalytics } from "firebase/analytics";
 import { getPerformance } from "firebase/performance";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+
 
 // Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyAIkm7ts3cjUNfBpDj_DwAAH3S0gzWlz6c",
-  authDomain: "iot-security-11.firebaseapp.com",
-  databaseURL: "https://iot-security-11-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "iot-security-11",
-  storageBucket: "iot-security-11.firebasestorage.app",
-  messagingSenderId: "857717164447",
-  appId: "1:857717164447:web:b7c3e3dec9aa0beb54d5aa",
-  measurementId: "G-SWSQGMB7P1"
+ 
 };
 
 // Init
