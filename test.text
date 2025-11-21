@@ -1,0 +1,73 @@
+$secret = "7e3dd7cd46ec08905d5d6908066baf49a093765648ca5b96e7438ad5d39fce03"  
+$body = '{"timestamp":1730900000000,"data":{"gas_value":723,"fire_value":412,"keypad_status":"ok","system_armed":true,"buzzer":false,"led_red":true,"led_green":false}}'
+$signature = (echo -n $body | openssl dgst -sha256 -hmac $secret | awk '{print $2}')
+
+Invoke-RestMethod -Uri "https://dry-wildflower-2539.saaidabenaissa.workers.dev/ingest" `
+  -Method POST `
+  -Headers @{ "x-device-id"="esp32-test-01"; "x-signature"=$signature; "Content-Type"="application/json" } `
+  -Body $body
+
+curl -X POST "https://dry-wildflower-2539.saaidabenaissa.workers.dev/ingest" \
+  -H "x-device-id: test-device" \
+  -H "x-signature: dummy" \
+  -H "Content-Type: application/json" \
+  -d '{"timestamp":1730900000000,"data":{"gas_value":700,"fire_value":500}}'
+
+
+$secret = "7e3dd7cd46ec08905d5d6908066baf49a093765648ca5b96e7438ad5d39fce03"
+$body = '{"timestamp":1730900000000,"data":{"gas_value":700,"fire_value":500}}'
+$signature = (echo -n $body | openssl dgst -sha256 -hmac $secret | awk '{print $2}')
+Invoke-RestMethod -Uri "https://dry-wildflower-2539.saaidabenaissa.workers.dev/ingest" `
+  -Method POST `
+  -Headers @{ "x-device-id"="esp32-test"; "x-signature"=$signature; "Content-Type"="application/json" } `
+  -Body $body
+
+
+
+# 1) Clé HMAC (exactement la même que dans Cloudflare)
+$secret = "7e3dd7cd46ec08905d5d6908066baf49a093765648ca5b96e7438ad5d39fce03"
+
+# 2) Corps JSON (compact, identique à celui envoyé)
+$body = '{"timestamp":1730900000000,"data":{"gas_value":700,"fire_value":500}}'
+
+# 3) HMAC-SHA256 (hex minuscule) — version robuste
+$secretBytes = [System.Text.Encoding]::UTF8.GetBytes($secret)
+$hmac = [System.Security.Cryptography.HMACSHA256]::new($secretBytes)
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+$hash  = $hmac.ComputeHash($bytes)
+$signature = ([System.BitConverter]::ToString($hash)).Replace("-", "").ToLower()
+
+# 4) Envoi HTTP vers ton Worker
+Invoke-RestMethod `
+  -Uri "https://dry-wildflower-2539.saaidabenaissa.workers.dev/ingest" `
+  -Method POST `
+  -Headers @{
+    "x-device-id" = "esp32-test";
+    "x-signature" = $signature;
+    "Content-Type" = "application/json"
+  } `
+  -Body $body
+
+# 1) Clé HMAC (exactement la même que dans Cloudflare)
+$secret = "7e3dd7cd46ec08905d5d6908066baf49a093765648ca5b96e7438ad5d39fce03"
+
+# 2) Corps JSON pour alerte GAZ
+$body = '{"timestamp":1730900000000,"data":{"gas_value":950,"keypad_status":"GAS_ALARM","system_armed":true,"led_red":true,"buzzer":true}}'
+
+# 3) HMAC-SHA256 (hex minuscule) — version robuste
+$secretBytes = [System.Text.Encoding]::UTF8.GetBytes($secret)
+$hmac = [System.Security.Cryptography.HMACSHA256]::new($secretBytes)
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+$hash  = $hmac.ComputeHash($bytes)
+$signature = ([System.BitConverter]::ToString($hash)).Replace("-", "").ToLower()
+
+# 4) Envoi HTTP vers ton Worker
+Invoke-RestMethod `
+  -Uri "https://dry-wildflower-2539.saaidabenaissa.workers.dev/ingest" `
+  -Method POST `
+  -Headers @{
+    "x-device-id" = "esp32-test";
+    "x-signature" = $signature;
+    "Content-Type" = "application/json"
+  } `
+  -Body $body
