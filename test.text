@@ -52,7 +52,7 @@ Invoke-RestMethod `
 $secret = "7e3dd7cd46ec08905d5d6908066baf49a093765648ca5b96e7438ad5d39fce03"
 
 # 2) Corps JSON pour alerte GAZ
-$body = '{"timestamp":1730900000000,"data":{"gas_value":950,"keypad_status":"GAS_ALARM","system_armed":true,"led_red":true,"buzzer":true}}'
+$body = '{"timestamp":1730900000000,"data":{"fire_value": 1,"humidity_value": 75}}'
 
 # 3) HMAC-SHA256 (hex minuscule) — version robuste
 $secretBytes = [System.Text.Encoding]::UTF8.GetBytes($secret)

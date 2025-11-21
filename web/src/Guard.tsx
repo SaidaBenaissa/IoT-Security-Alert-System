@@ -1,90 +1,65 @@
-// src/Guard.tsx
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, reload, sendEmailVerification, signOut } from "firebase/auth";
 import { auth } from "./firebase";
-import { isAdmin, isMfaOk } from "./db";
+import { isAdmin } from "./db";
 import Login from "./Login";
 import MfaStep from "./MfaStep";
 
 type Phase = "loading" | "need-login" | "need-verify" | "need-mfa" | "denied" | "ok";
 
-function decodeJwtPayload(t?: string): any|null {
-  try {
-    if (!t) return null;
-    const p = t.split(".")[1];
-    const s = p.replace(/-/g,"+").replace(/_/g,"/") + "==".slice((2 - p.length*3) & 3);
-    return JSON.parse(atob(s));
-  } catch { return null; }
-}
-
 export default function Guard({ children }: { children: React.ReactNode }) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [uid, setUid] = useState<string | null>(null);
-  const [session, setSession] = useState<number | null>(null);
 
   useEffect(() => {
     const off = onAuthStateChanged(auth, async (u) => {
       console.log('🔄 Guard: Auth state changed:', u?.email);
-      
+
       if (!u) {
         setPhase("need-login");
         setUid(null);
-        setSession(null);
         return;
       }
 
       setUid(u.uid);
 
-      // 1) Identifier la méthode d'authentification
-      const providers = u.providerData.map(p => p.providerId);
-      const isPassword = providers.includes("password");
-      const isGoogle = providers.includes("google.com");
+      try {
+        await reload(u);
+        
+        // 1) Vérifier si admin
+        const allowed = await isAdmin(u.uid);
+        if (!allowed) { 
+          console.log('❌ Guard: Access denied - not an admin');
+          setPhase("denied"); 
+          return; 
+        }
 
-      console.log('🔐 Auth method:', { isPassword, isGoogle, providers });
+        // 2) Identifier méthode d'authentification
+        const providers = u.providerData.map((p: any) => p.providerId);
+        const isGoogle = providers.includes("google.com");
+        const isEmail = providers.includes("password");
 
-      // Recharger les données utilisateur
-      await reload(u);
-      
-      // 2) Email/password: exiger email vérifié
-      if (isPassword && !u.emailVerified) {
-        setPhase("need-verify");
-        return;
-      }
+        console.log('🔐 Auth method:', { isGoogle, isEmail, emailVerified: u.emailVerified });
 
-      // 3) Vérifier si admin (OBLIGATOIRE pour tous)
-      console.log('🔐 Guard: Checking admin status for:', u.uid);
-      const allowed = await isAdmin(u.uid);
-      if (!allowed) { 
-        console.log('❌ Guard: Access denied - not an admin');
-        setPhase("denied"); 
-        return; 
-      }
-
-      // 4) Session (auth_time du token)
-      const idToken = await u.getIdToken(false);
-      const payload = decodeJwtPayload(idToken);
-      const sess = payload?.auth_time ?? null;
-      setSession(sess);
-
-      // 5) 🔥 MFA POLICY SIMPLIFIÉE :
-      // - Google: Accès DIRECT après vérification admin
-      // - Email: MFA OBLIGATOIRE
-      
-      if (isGoogle) {
-        // Utilisateur Google → Accès DIRECT
-        console.log('✅ Google user - MFA skipped, direct access');
-        setPhase("ok");
-      } else if (isPassword) {
-        // Utilisateur Email → Vérifier MFA
-        console.log('🔐 Email user - MFA required');
-        const mfaValid = (sess != null) ? await isMfaOk(u.uid, sess) : false;
-        console.log('📊 MFA validation result:', mfaValid);
-        setPhase(mfaValid ? "ok" : "need-mfa");
-      } else {
-        // Autre méthode → MFA requis par défaut
-        console.log('🔐 Other auth method - MFA required');
-        const mfaValid = (sess != null) ? await isMfaOk(u.uid, sess) : false;
-        setPhase(mfaValid ? "ok" : "need-mfa");
+        // 3) 🔥 LOGIQUE SIMPLIFIÉE - MFA TOUJOURS pour EMAIL
+        if (isEmail) {
+          if (!u.emailVerified) {
+            console.log('📧 Email not verified');
+            setPhase("need-verify");
+          } else {
+            console.log('🔐 Email user - MFA REQUIRED');
+            setPhase("need-mfa");
+          }
+        } else if (isGoogle) {
+          console.log('✅ Google user - Direct access');
+          setPhase("ok");
+        } else {
+          console.log('🔐 Other method - MFA required');
+          setPhase("need-mfa");
+        }
+      } catch (error) {
+        console.error('❌ Error in auth flow:', error);
+        setPhase("need-login");
       }
     });
     return () => off();
@@ -126,7 +101,6 @@ export default function Guard({ children }: { children: React.ReactNode }) {
                 if (auth.currentUser) { 
                   await reload(auth.currentUser); 
                   if (auth.currentUser.emailVerified) {
-                    // Redémarrer le processus de vérification
                     setPhase("loading");
                   }
                 }
@@ -164,7 +138,7 @@ export default function Guard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (phase === "need-mfa" && uid && session != null) {
+  if (phase === "need-mfa" && uid) {
     return (
       <MfaStep 
         uid={uid} 
@@ -176,6 +150,5 @@ export default function Guard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Phase "ok" - afficher le contenu enfant (Dashboard)
   return <>{children}</>;
 }

@@ -1,6 +1,6 @@
-// src/MfaStep.tsx
 import { useEffect, useRef, useState } from "react";
 import { auth } from "./firebase";
+import { logEvent } from "./supabase";
 
 const WORKER_BASE = "https://dry-wildflower-2539.saaidabenaissa.workers.dev";
 
@@ -28,6 +28,15 @@ export default function MfaStep({ uid, onOk }: { uid: string; onOk: () => void }
       const email   = auth.currentUser?.email || undefined;
       const reqId   = requestId ?? crypto.randomUUID();
 
+      // 🔥 LOG MFA Code Sent (NON-BLOQUANT)
+      logEvent('MFA_CODE_SENT', {
+        email: email,
+        uid: uid,
+        session: s,
+        requestId: reqId,
+        authType: 'email' // ← AJOUT pour tracking
+      }, uid).catch(console.error);
+
       const r = await fetch(`${WORKER_BASE}/mfa/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -37,6 +46,14 @@ export default function MfaStep({ uid, onOk }: { uid: string; onOk: () => void }
       if (!r.ok || !j.ok) throw new Error(j.error || "mfa/start failed");
       setMsg(j.already_pending ? "Code existant toujours valide." : "Code envoyé à votre email.");
     } catch (e:any) {
+      // 🔥 LOG MFA Send Error (NON-BLOQUANT)
+      logEvent('MFA_SEND_ERROR', {
+        uid: uid,
+        error: e.message,
+        session: s,
+        authType: 'email' // ← AJOUT pour tracking
+      }, uid).catch(console.error);
+      
       setErr(e.message);
     } finally {
       setLoading(false);
@@ -68,9 +85,25 @@ export default function MfaStep({ uid, onOk }: { uid: string; onOk: () => void }
       });
       const j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error || "mfa/verify failed");
+      
+      // 🔥 LOG MFA Success (NON-BLOQUANT)
+      logEvent('MFA_SUCCESS', {
+        uid: uid,
+        session: session,
+        authType: 'email' // ← AJOUT pour tracking
+      }, uid).catch(console.error);
+      
       setMsg("2FA validé !");
       onOk();
     } catch (e:any) {
+      // 🔥 LOG MFA Verification Error (NON-BLOQUANT)
+      logEvent('MFA_VERIFICATION_ERROR', {
+        uid: uid,
+        error: e.message,
+        codeLength: code.length,
+        authType: 'email' // ← AJOUT pour tracking
+      }, uid).catch(console.error);
+      
       setErr(e.message);
     } finally {
       setLoading(false);

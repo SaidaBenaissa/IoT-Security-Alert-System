@@ -9,6 +9,7 @@ import {
   reload,
   signOut,
 } from "firebase/auth";
+import { logEvent } from "./supabase";
 
 export default function Login({ onOk }: { onOk: () => void }) {
   const [email, setEmail] = useState("");
@@ -24,10 +25,25 @@ export default function Login({ onOk }: { onOk: () => void }) {
     setGoogleLoading(true); 
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      
+      // 🔥 LOG Google Login (non-bloquant)
+      logEvent('GOOGLE_LOGIN_ATTEMPT', {
+        email: result.user.email,
+        uid: result.user.uid,
+        provider: 'google'
+      }, result.user.uid).catch(console.error);
+      
       console.log('Google login successful');
 
     } catch (e: any) {
+      // 🔥 LOG Google Login Error (non-bloquant)
+      logEvent('GOOGLE_LOGIN_ERROR', {
+        email: email,
+        error: e.message,
+        provider: 'google'
+      }).catch(console.error);
+      
       setErr(e.message || "Échec de la connexion Google");
     } finally {
       setGoogleLoading(false); 
@@ -35,19 +51,30 @@ export default function Login({ onOk }: { onOk: () => void }) {
   };
 
   const loginEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErr(""); setInfo(""); setNeedVerify(false); 
-    setEmailLoading(true); 
-    try {
-      const cred = await signInWithEmailAndPassword(auth, email.trim(), pw);
-      if (!cred.user.emailVerified) {
-        await sendEmailVerification(cred.user);
-        setNeedVerify(true);
-        setInfo("Un email de vérification a été envoyé. Validez puis cliquez « J'ai vérifié ».");
-        return;
-      }
-      console.log(' Email login successful - MFA will be required');
-    } catch (e: any) {
+  e.preventDefault();
+  setErr(""); setInfo(""); setNeedVerify(false); 
+  setEmailLoading(true); 
+  try {
+    const cred = await signInWithEmailAndPassword(auth, email.trim(), pw);
+    
+    // 🔥 LOG Email Login Attempt (NON-BLOQUANT)
+    logEvent('EMAIL_LOGIN_ATTEMPT', {
+      email: cred.user.email,
+      uid: cred.user.uid,
+      emailVerified: cred.user.emailVerified,
+      providers: cred.user.providerData.map(p => p.providerId) // ← AJOUT
+    }, cred.user.uid).catch(console.error);
+
+    console.log('🔐 Login successful - waiting for Guard MFA check');
+    // Le Guard va maintenant gérer la redirection vers MFA
+    
+  } catch (e: any) {
+      // 🔥 LOG Email Login Error (non-bloquant)
+      logEvent('EMAIL_LOGIN_ERROR', {
+        email: email,
+        error: e.message
+      }).catch(console.error);
+      
       setErr(e.message || "Échec de la connexion par email");
     } finally {
       setEmailLoading(false); 
@@ -58,10 +85,21 @@ export default function Login({ onOk }: { onOk: () => void }) {
     try {
       setErr(""); setInfo("Vérification…");
       await reload(auth.currentUser!);
+      
       if (auth.currentUser?.emailVerified) {
+        // 🔥 LOG Email Verified (non-bloquant)
+        logEvent('EMAIL_VERIFIED', {
+          email: auth.currentUser.email,
+          uid: auth.currentUser.uid
+        }, auth.currentUser.uid).catch(console.error);
+        
         setNeedVerify(false);
-      } else setErr("Email non vérifié.");
-    } catch (e: any) { setErr(e.message); }
+      } else {
+        setErr("Email non vérifié.");
+      }
+    } catch (e: any) { 
+      setErr(e.message); 
+    }
   };
 
   if (needVerify) {
@@ -109,7 +147,7 @@ export default function Login({ onOk }: { onOk: () => void }) {
         {/* Google Button - Accès direct sans MFA */}
         <div className="mb-6">
           <button
-            disabled={googleLoading || emailLoading} // 🔥 Les deux loadings
+            disabled={googleLoading || emailLoading}
             onClick={loginGoogle}
             className="w-full flex items-center justify-center gap-3 bg-[#4285F4] hover:bg-[#3a76d8] text-white font-semibold py-4 rounded-2xl shadow-lg text-lg transition disabled:opacity-60"
           >
@@ -118,9 +156,8 @@ export default function Login({ onOk }: { onOk: () => void }) {
               alt="Google"
               className="w-6 h-6 bg-white rounded-full p-1"
             />
-            {googleLoading ? "Connexion Google..." : "Se connecter avec Google"} {/* 🔥 Texte spécifique */}
+            {googleLoading ? "Connexion Google..." : "Se connecter avec Google"}
           </button>
-        
         </div>
 
         <div className="opacity-60 text-center my-6">ou</div>
@@ -154,13 +191,12 @@ export default function Login({ onOk }: { onOk: () => void }) {
 
             <button
               type="submit"
-              disabled={emailLoading || googleLoading} // 🔥 Les deux loadings
+              disabled={emailLoading || googleLoading}
               className="w-full bg-black hover:bg-gray-900 text-white font-bold py-4 rounded-2xl shadow-lg text-lg transition disabled:opacity-60"
             >
-              {emailLoading ? "Connexion Email..." : "Se connecter"} {/* 🔥 Texte spécifique */}
+              {emailLoading ? "Connexion Email..." : "Se connecter"}
             </button>
           </form>
-          
         </div>
 
         {err && <p className="text-red-600 text-sm mt-4 text-center font-medium">{err}</p>}
