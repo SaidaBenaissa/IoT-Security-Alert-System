@@ -15,8 +15,8 @@
 #define WIFI_PASSWORD "YOUR_WIFI_PASS"
 
 // Supabase Configuration
-#define SUPABASE_URL "https://owsahicfqgmblmjhzale.supabase.co"
-#define SUPABASE_ANON_KEY "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93c2FoaWNmcWdtYmxtamh6YWxlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI4NDg3NzEsImV4cCI6MjA3ODQyNDc3MX0.a0RSnKLhWo_pZRCRbY0ZNG9xKjmN1C6pQpF_AFClgnI"
+#define SUPABASE_URL ""
+#define SUPABASE_ANON_KEY ""
 
 // Device Configuration
 #define DEVICE_ID "esp32-home-01"
