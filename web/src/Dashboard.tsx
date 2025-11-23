@@ -638,17 +638,91 @@ const Dashboard = () => {
     link.click();
   };
 
-  // Fonction pour simuler l'envoi de commandes (design uniquement)
-  const handleControlToggle = (command: string, value: boolean) => {
-    console.log(`🎮 Simulation: Commande ${command} = ${value}`);
+  // Fonction pour envoyer les commandes vers Supabase (version utilisant device_status)
+const sendCommand = async (command: string, value: boolean) => {
+  console.log(`🎮 Sending command to Supabase: ${command} = ${value}`);
+  
+  try {
+    // Mettre à jour l'état local immédiatement pour l'UI
     setControlState(prev => ({
       ...prev,
       [command]: value
     }));
-    
-    // Afficher un message d'information
-    alert(`Fonctionnalité de contrôle en mode simulation\nCommande: ${command}\nValeur: ${value ? 'ACTIVÉ' : 'DÉSACTIVÉ'}`);
-  };
+
+    // Mettre à jour directement le device_status
+    const { error } = await supabase
+      .from('device_status')
+      .update({ 
+        [command]: value,
+        last_seen: Math.floor(Date.now() / 1000)
+      })
+      .eq('device_id', DEVICE_ID);
+
+    if (error) {
+      console.error('❌ Error updating device status:', error);
+      
+      // Si la table device_status n'a pas la colonne, essayez de l'ajouter
+      if (error.message.includes('column') && error.message.includes('does not exist')) {
+        console.log('📝 Column might not exist, trying to update device_commands...');
+        await createDeviceCommandsTable();
+        await sendCommandToDeviceCommands(command, value);
+        return;
+      }
+      
+      alert(`Erreur: ${error.message}`);
+      // Revert local state on error
+      setControlState(prev => ({
+        ...prev,
+        [command]: !value
+      }));
+      return;
+    }
+
+    console.log('✅ Command sent successfully to device_status');
+
+  } catch (error) {
+    console.error('❌ Exception sending command:', error);
+    alert('Erreur lors de l\'envoi de la commande');
+    // Revert local state on error
+    setControlState(prev => ({
+      ...prev,
+      [command]: !value
+    }));
+  }
+};
+
+// Fonction de secours pour device_commands
+const sendCommandToDeviceCommands = async (command: string, value: boolean) => {
+  try {
+    const { data, error } = await supabase
+      .from('device_commands')
+      .insert([
+        {
+          device_id: DEVICE_ID,
+          command: command,
+          value: value,
+          timestamp: Math.floor(Date.now() / 1000),
+          executed: false
+        }
+      ]);
+
+    if (error) {
+      throw error;
+    }
+
+    console.log('✅ Command sent to device_commands:', data);
+  } catch (error) {
+    console.error('❌ Error with device_commands:', error);
+    throw error;
+  }
+};
+
+// Fonction pour créer la table device_commands si elle n'existe pas
+const createDeviceCommandsTable = async () => {
+  console.log('🛠️ Attempting to create device_commands table...');
+  // Cette fonction serait appelée si device_commands n'existe pas
+  // En pratique, vous devriez créer la table via l'interface Supabase
+};
 
   const getAlertColor = (level: string) => {
     switch(level) {
@@ -1120,7 +1194,7 @@ const Dashboard = () => {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleControlToggle('led_green', !controlState.led_green)}
+                    onClick={() => sendCommand('led_green', !controlState.led_green)}
                     className={`w-full py-3 rounded-lg font-semibold transition-all ${
                       controlState.led_green
                         ? 'bg-green-500 hover:bg-green-600 text-white'
@@ -1148,7 +1222,7 @@ const Dashboard = () => {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleControlToggle('led_red', !controlState.led_red)}
+                    onClick={() => sendCommand('led_red', !controlState.led_red)}
                     className={`w-full py-3 rounded-lg font-semibold transition-all ${
                       controlState.led_red
                         ? 'bg-red-500 hover:bg-red-600 text-white'
@@ -1176,7 +1250,7 @@ const Dashboard = () => {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleControlToggle('buzzer', !controlState.buzzer)}
+                    onClick={() => sendCommand('buzzer', !controlState.buzzer)}
                     className={`w-full py-3 rounded-lg font-semibold transition-all ${
                       controlState.buzzer
                         ? 'bg-yellow-500 hover:bg-yellow-600 text-white'
@@ -1204,7 +1278,7 @@ const Dashboard = () => {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleControlToggle('system_armed', !controlState.system_armed)}
+                    onClick={() => sendCommand('system_armed', !controlState.system_armed)}
                     className={`w-full py-3 rounded-lg font-semibold transition-all ${
                       controlState.system_armed
                         ? 'bg-blue-500 hover:bg-blue-600 text-white'
