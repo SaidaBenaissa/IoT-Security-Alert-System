@@ -9,10 +9,7 @@ import {
   reload,
   signOut,
 } from "firebase/auth";
-<<<<<<< HEAD
-=======
 import { logEvent } from "./supabase";
->>>>>>> 616d06371d46bd4b8a219dfc61aaec59c7eb679a
 
 export default function Login({ onOk }: { onOk: () => void }) {
   const [email, setEmail] = useState("");
@@ -28,32 +25,11 @@ export default function Login({ onOk }: { onOk: () => void }) {
     setGoogleLoading(true); 
     try {
       const provider = new GoogleAuthProvider();
-<<<<<<< HEAD
       await signInWithPopup(auth, provider);
       console.log('Google login successful');
 
     } catch (e: any) {
-=======
-      const result = await signInWithPopup(auth, provider);
-      
-      // 🔥 LOG Google Login (non-bloquant)
-      logEvent('GOOGLE_LOGIN_ATTEMPT', {
-        email: result.user.email,
-        uid: result.user.uid,
-        provider: 'google'
-      }, result.user.uid).catch(console.error);
-      
-      console.log('Google login successful');
 
-    } catch (e: any) {
-      // 🔥 LOG Google Login Error (non-bloquant)
-      logEvent('GOOGLE_LOGIN_ERROR', {
-        email: email,
-        error: e.message,
-        provider: 'google'
-      }).catch(console.error);
-      
->>>>>>> 616d06371d46bd4b8a219dfc61aaec59c7eb679a
       setErr(e.message || "Échec de la connexion Google");
     } finally {
       setGoogleLoading(false); 
@@ -61,7 +37,6 @@ export default function Login({ onOk }: { onOk: () => void }) {
   };
 
   const loginEmail = async (e: React.FormEvent) => {
-<<<<<<< HEAD
     e.preventDefault();
     setErr(""); setInfo(""); setNeedVerify(false); 
     setEmailLoading(true); 
@@ -75,32 +50,7 @@ export default function Login({ onOk }: { onOk: () => void }) {
       }
       console.log(' Email login successful - MFA will be required');
     } catch (e: any) {
-=======
-  e.preventDefault();
-  setErr(""); setInfo(""); setNeedVerify(false); 
-  setEmailLoading(true); 
-  try {
-    const cred = await signInWithEmailAndPassword(auth, email.trim(), pw);
-    
-    // 🔥 LOG Email Login Attempt (NON-BLOQUANT)
-    logEvent('EMAIL_LOGIN_ATTEMPT', {
-      email: cred.user.email,
-      uid: cred.user.uid,
-      emailVerified: cred.user.emailVerified,
-      providers: cred.user.providerData.map(p => p.providerId) // ← AJOUT
-    }, cred.user.uid).catch(console.error);
 
-    console.log('🔐 Login successful - waiting for Guard MFA check');
-    // Le Guard va maintenant gérer la redirection vers MFA
-    
-  } catch (e: any) {
-      // 🔥 LOG Email Login Error (non-bloquant)
-      logEvent('EMAIL_LOGIN_ERROR', {
-        email: email,
-        error: e.message
-      }).catch(console.error);
-      
->>>>>>> 616d06371d46bd4b8a219dfc61aaec59c7eb679a
       setErr(e.message || "Échec de la connexion par email");
     } finally {
       setEmailLoading(false); 
@@ -111,28 +61,11 @@ export default function Login({ onOk }: { onOk: () => void }) {
     try {
       setErr(""); setInfo("Vérification…");
       await reload(auth.currentUser!);
-<<<<<<< HEAD
       if (auth.currentUser?.emailVerified) {
         setNeedVerify(false);
       } else setErr("Email non vérifié.");
     } catch (e: any) { setErr(e.message); }
-=======
-      
-      if (auth.currentUser?.emailVerified) {
-        // 🔥 LOG Email Verified (non-bloquant)
-        logEvent('EMAIL_VERIFIED', {
-          email: auth.currentUser.email,
-          uid: auth.currentUser.uid
-        }, auth.currentUser.uid).catch(console.error);
-        
-        setNeedVerify(false);
-      } else {
-        setErr("Email non vérifié.");
-      }
-    } catch (e: any) { 
-      setErr(e.message); 
-    }
->>>>>>> 616d06371d46bd4b8a219dfc61aaec59c7eb679a
+
   };
 
   if (needVerify) {
@@ -179,28 +112,21 @@ export default function Login({ onOk }: { onOk: () => void }) {
         
         {/* Google Button - Accès direct sans MFA */}
         <div className="mb-6">
-          <button
-<<<<<<< HEAD
-            disabled={googleLoading || emailLoading} // 🔥 Les deux loadings
-=======
-            disabled={googleLoading || emailLoading}
->>>>>>> 616d06371d46bd4b8a219dfc61aaec59c7eb679a
-            onClick={loginGoogle}
-            className="w-full flex items-center justify-center gap-3 bg-[#4285F4] hover:bg-[#3a76d8] text-white font-semibold py-4 rounded-2xl shadow-lg text-lg transition disabled:opacity-60"
-          >
+            <button
+              disabled={googleLoading || emailLoading} // 🔥 Les deux loadings
+
+              onClick={loginGoogle}
+              className="w-full flex items-center justify-center gap-3 bg-[#4285F4] hover:bg-[#3a76d8] text-white font-semibold py-4 rounded-2xl shadow-lg text-lg transition disabled:opacity-60"
+            >
             <img
               src="https://www.svgrepo.com/show/355037/google.svg"
               alt="Google"
               className="w-6 h-6 bg-white rounded-full p-1"
             />
-<<<<<<< HEAD
             {googleLoading ? "Connexion Google..." : "Se connecter avec Google"} {/* 🔥 Texte spécifique */}
           </button>
         
-=======
-            {googleLoading ? "Connexion Google..." : "Se connecter avec Google"}
-          </button>
->>>>>>> 616d06371d46bd4b8a219dfc61aaec59c7eb679a
+
         </div>
 
         <div className="opacity-60 text-center my-6">ou</div>
@@ -234,7 +160,6 @@ export default function Login({ onOk }: { onOk: () => void }) {
 
             <button
               type="submit"
-<<<<<<< HEAD
               disabled={emailLoading || googleLoading} // 🔥 Les deux loadings
               className="w-full bg-black hover:bg-gray-900 text-white font-bold py-4 rounded-2xl shadow-lg text-lg transition disabled:opacity-60"
             >
@@ -242,14 +167,6 @@ export default function Login({ onOk }: { onOk: () => void }) {
             </button>
           </form>
           
-=======
-              disabled={emailLoading || googleLoading}
-              className="w-full bg-black hover:bg-gray-900 text-white font-bold py-4 rounded-2xl shadow-lg text-lg transition disabled:opacity-60"
-            >
-              {emailLoading ? "Connexion Email..." : "Se connecter"}
-            </button>
-          </form>
->>>>>>> 616d06371d46bd4b8a219dfc61aaec59c7eb679a
         </div>
 
         {err && <p className="text-red-600 text-sm mt-4 text-center font-medium">{err}</p>}
