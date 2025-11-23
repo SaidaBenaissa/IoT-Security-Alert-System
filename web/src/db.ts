@@ -1,7 +1,4 @@
-<<<<<<< HEAD
 // src/db.ts
-=======
->>>>>>> 616d06371d46bd4b8a219dfc61aaec59c7eb679a
 import { supabase } from './supabase';
 
 // Vérifier si l'utilisateur est administrateur
@@ -32,12 +29,9 @@ export async function isAdmin(uid: string): Promise<boolean> {
 export async function isMfaOk(uid: string, session: number): Promise<boolean> {
   console.log('🔐 Checking MFA status:', { uid, session });
   
-<<<<<<< HEAD
   // 🔥 TOUJOURS retourner false pour forcer le MFA à chaque connexion
   console.log('🚫 MFA forced for every login');
   return false;
-  
-
 }
 
 // Logger la connexion
@@ -46,42 +40,3 @@ export async function touchLastLogin(uid: string, email?: string) {
   //  logger les connexions dans une table séparée
   // You can implement logging to Firebase if needed
 }
-=======
-  try {
-    // Vérifier dans la base de données si le MFA est valide pour cette session
-    const { data, error } = await supabase
-      .from('mfa_state')
-      .select('state, updated_at')
-      .eq('uid', uid)
-      .single();
-    
-    if (error || !data) {
-      console.log('❌ No valid MFA state found');
-      return false;
-    }
-    
-    // Vérifier si le MFA a été validé pour cette session
-    // On considère le MFA valide seulement si :
-    // 1. Le state est "ok"
-    // 2. Et il a été mis à jour après le début de la session
-    const mfaUpdated = new Date(data.updated_at).getTime();
-    const sessionStart = session * 1000; // Convertir en millisecondes
-    
-    const isValid = data.state === 'ok' && mfaUpdated > sessionStart;
-    console.log('📊 MFA validation result:', { isValid, mfaUpdated, sessionStart });
-    
-    return isValid;
-    
-  } catch (e) {
-    console.error('❌ MFA check exception:', e);
-    return false;
-  }
-}
-
-// Logger la connexion 
-export async function touchLastLogin(uid: string, email?: string) {
-  console.log(' User logged in:', { uid, email });
-  //  logger les connexions dans une table séparée
-  // await supabase.from('login_logs').insert({ uid, email, timestamp: Date.now() });
-}
->>>>>>> 616d06371d46bd4b8a219dfc61aaec59c7eb679a
