@@ -1,186 +1,250 @@
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
-#include <Keypad.h>
-#include <ESP32Servo.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <mbedtls/md.h>
+#include <Keypad.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include "mbedtls/md.h"
+#include <ESP32Servo.h>
 
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+// ---------------- PINS ----------------
+const int flamePin  = 34;
+const int mq2Pin    = 35;
+const int soilPin   = 32;
 
-// ------------------ Pins capteurs ------------------
-#define FLAME_PIN 34
-#define WATER_PIN 35
-#define GAS_PIN   32
+const int buzzerPin = 14;   // BUZZER
+const int servoPin  = 23;   // SERVOMOTEUR
 
-// ------------------ Pins actuateurs ----------------
-#define BUZZER_PIN 26
-#define SERVO_PIN  13
+Servo verrou;  // servo pour ouvrir la porte
 
-Servo fenetre;
+// ---------------- TIMING ----------------
+unsigned long lastPeriodicSend = 0;
+const unsigned long PERIODIC_INTERVAL = 45000; // 45s
 
-// ------------------ Code d’accès -------------------
-String codeCorrect = "2025";
-String codeEntre = "";
+// ---------------- MQ2 ----------------
+int mq2Filtered = 0, baseline = 0;
+const int GAS_THRESHOLD = 120;
 
-// ------------------ Keypad -------------------------
-const byte ROWS = 4;
-const byte COLS = 3;
-char touches[ROWS][COLS] = {
-  {'1','2','3'},
-  {'4','5','6'},
-  {'7','8','9'},
-  {'*','0','#'}
-};
-byte rowPins[ROWS] = {14, 27, 26, 25};
-byte colPins[COLS] = {33, 32, 23};
-Keypad keypad = Keypad( makeKeymap(touches), rowPins, colPins, ROWS, COLS );
-
-// ------------------ Wi-Fi --------------------------
-const char* ssid = "";
+// ---------------- WIFI ----------------
+const char* ssid     = "";
 const char* password = "";
 
-// ------------------ Cloudflare Worker --------------
-const char* worker_url = "";
-const char* secret     = "";
-const char* device_id  = "esp32-test";
+// ---------------- CLOUD ----------------
+String cloudURL = "https://dry-wildflower-2539.saaidabenaissa.workers.dev/ingest";
+String deviceID = "";
+String secret   = "";
 
-// ------------------ Limitation envoi ----------------
-unsigned long lastSend = 0;
-const unsigned long intervalSend = 45000; // 45s
+// ---------------- LCD ----------------
+LiquidCrystal_I2C lcd(0x27,16,2);
 
+// ---------------- KEYPAD ----------------
+const byte ROWS = 4;
+const byte COLS = 4;
+char keys[ROWS][COLS] = {
+  {'3','1','2','A'},
+  {'6','4','5','B'},
+  {'9','7','8','C'},
+  {'#','*','0','D'}
+};
+byte rowPins[ROWS] = {19,18,5,17};
+byte colPins[COLS] = {2,16,4,15};
+Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+
+String passwordKey = "2020";
+String inputKey = "";
+
+bool keypadEvent = false;
+String keypadStatus = "none";
+
+// ---------------- ALERT DURATION ----------------
+const int ALERT_DURATION_GAS   = 2000; // ms
+const int ALERT_DURATION_FLAME = 2000; 
+const int ALERT_DURATION_WATER = 2000; 
+
+// ---------------- GET UNIX TIMESTAMP ----------------
+unsigned long getUnixTimestamp() {
+  return (unsigned long)(millis() / 1000 + 1730000000UL);  
+}
+
+// ---------------- HMAC SHA256 ----------------
+String hmacSHA256(String key, String msg) {
+  unsigned char hmac[32];
+  mbedtls_md_context_t ctx;
+  const mbedtls_md_info_t* info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+
+  mbedtls_md_init(&ctx);
+  mbedtls_md_setup(&ctx, info, 1);
+  mbedtls_md_hmac_starts(&ctx, (const unsigned char*)key.c_str(), key.length());
+  mbedtls_md_hmac_update(&ctx, (const unsigned char*)msg.c_str(), msg.length());
+  mbedtls_md_hmac_finish(&ctx, hmac);
+  mbedtls_md_free(&ctx);
+
+  String hex = "";
+  for (int i = 0; i < 32; i++) {
+    if (hmac[i] < 16) hex += "0";
+    hex += String(hmac[i], HEX);
+  }
+  return hex;
+}
+
+// ---------------- CLOUD SEND ----------------
+void sendToCloud(String type, int gas, int flame, int water, String keypadStatus) {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  StaticJsonDocument<300> doc;
+  doc["type"] = type;
+  doc["timestamp"] = getUnixTimestamp();
+
+  JsonObject data = doc.createNestedObject("data");
+  data["gas_value"]      = gas;
+  data["fire_value"]     = flame;
+  data["humidity_value"] = water;
+
+  if (type == "keypad")
+      data["keypad_status"] = keypadStatus;
+  else
+      data["keypad_status"] = nullptr;
+
+  String jsonStr;
+  serializeJson(doc, jsonStr);
+
+  String sig = hmacSHA256(secret, jsonStr);
+
+  HTTPClient http;
+  http.begin(cloudURL);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("x-device-id", deviceID);
+  http.addHeader("x-signature", sig);
+
+  int code = http.POST(jsonStr);
+  Serial.println("HTTP code:" + String(code));
+  Serial.println(jsonStr);
+
+  http.end();
+}
+
+// ---------------- CALIBRATION MQ2 ----------------
+void calibrateMQ2() {
+  long sum = 0;
+  for (int i = 0; i < 120; i++) { 
+    sum += analogRead(mq2Pin); 
+    delay(20); 
+  }
+  baseline = sum / 120;
+  Serial.println("Baseline MQ2=" + String(baseline));
+}
+
+// ---------------- SETUP ----------------
 void setup() {
   Serial.begin(115200);
+
+  pinMode(flamePin, INPUT_PULLUP);
+  pinMode(soilPin, INPUT_PULLUP);
+  pinMode(buzzerPin, OUTPUT);
+
+  verrou.attach(servoPin);
+  verrou.write(0); // porte fermée
+
+  WiFi.begin(ssid, password);
+  Serial.print("Connexion WiFi...");
+  while (WiFi.status() != WL_CONNECTED) { 
+    Serial.print("."); 
+    delay(500); 
+  }
+  Serial.println("\nWiFi connecté !");
 
   lcd.init();
   lcd.backlight();
   lcd.clear();
-  lcd.setCursor(0,0);
-  lcd.print("Entrer code :");
+  lcd.print("Systeme Maison");
 
-  pinMode(FLAME_PIN, INPUT);
-  pinMode(WATER_PIN, INPUT);
-  pinMode(GAS_PIN, INPUT);
-  pinMode(BUZZER_PIN, OUTPUT);
+  calibrateMQ2();
 
-  fenetre.attach(SERVO_PIN);
-  fenetre.write(0);   // fenêtre fermée
-
-  // Connexion Wi-Fi
-  WiFi.begin(ssid, password);
-  Serial.print("Connexion Wi-Fi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println(" connecté !");
+  lcd.clear();
+  lcd.print("Entrez code:");
 }
 
-// ------------------ Fonctions sons -----------------
-void sonFlamme() { tone(BUZZER_PIN, 1000, 300); }
-void sonEau()    { tone(BUZZER_PIN, 600, 300); }
-void sonGaz()    { tone(BUZZER_PIN, 300, 300); }
-void sonErreur() { tone(BUZZER_PIN, 2000, 500); }
-
-// ------------------ HMAC SHA256 --------------------
-String getHMAC(String message, const char* key) {
-  byte hash[32];
-  mbedtls_md_context_t ctx;
-  const mbedtls_md_info_t* info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-  mbedtls_md_init(&ctx);
-  mbedtls_md_setup(&ctx, info, 1);
-  mbedtls_md_hmac_starts(&ctx, (const unsigned char*)key, strlen(key));
-  mbedtls_md_hmac_update(&ctx, (const unsigned char*)message.c_str(), message.length());
-  mbedtls_md_hmac_finish(&ctx, hash);
-  mbedtls_md_free(&ctx);
-
-  String signature = "";
-  char buf[3];
-  for (int i=0; i<32; i++) {
-    sprintf(buf, "%02x", hash[i]);
-    signature += buf;
-  }
-  return signature;
-}
-
-// ------------------ Envoi Cloudflare ----------------
-void sendToCloudflare(int flame, int water, int gas) {
-  if (WiFi.status() != WL_CONNECTED) return;
-
-  StaticJsonDocument<200> doc;
-  doc["timestamp"] = millis();
-  JsonObject data = doc.createNestedObject("data");
-  data["fire_value"]     = flame;
-  data["humidity_value"] = water;
-  data["gas_value"]      = gas;
-
-  String body;
-  serializeJson(doc, body);
-
-  String signature = getHMAC(body, secret);
-
-  HTTPClient http;
-  http.begin(worker_url);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("x-device-id", device_id);
-  http.addHeader("x-signature", signature);
-
-  int code = http.POST(body);
-  if (code > 0) Serial.println("✅ Envoi OK : " + String(code));
-  else Serial.println("❌ Erreur : " + http.errorToString(code));
-  http.end();
-}
-
+// ---------------- LOOP ----------------
 void loop() {
-  unsigned long currentMillis = millis();
-
-  // ------------- Keypad -----------------
+  // ===== KEYPAD =====
   char key = keypad.getKey();
+
   if (key) {
     if (key == '#') {
-      if (codeEntre == codeCorrect) {
-        lcd.clear();
-        lcd.print("Code correct");
-        lcd.setCursor(0,1);
-        lcd.print("Bienvenue !");
-        delay(1500);
+      lcd.clear();
+      if (inputKey == passwordKey) {
+        lcd.print("ACCES OK");
+        keypadStatus = "correct";
+        verrou.write(90); 
+        delay(2000);
+        verrou.write(0);
       } else {
-        lcd.clear();
-        lcd.print("Erreur code");
-        sonErreur();
-        delay(1500);
+        lcd.print("ACCES REFUSE");
+        keypadStatus = "incorrect";
+        tone(buzzerPin, 2000); 
+        delay(1000);
+        noTone(buzzerPin);
+        sendToCloud("alerte", 0,0,0,"incorrect");
       }
-      codeEntre = "";
+
+      sendToCloud("keypad", 0, 0, 0, keypadStatus);
+
+      delay(1500);
       lcd.clear();
-      lcd.print("Entrer code :");
-    } else if (key == '*') {
-      codeEntre = "";
+      lcd.print("Entrez code:");
+      inputKey = "";
+      keypadStatus = "none";
+    }
+    else if (key == '*') {
+      inputKey = "";
       lcd.clear();
-      lcd.print("Entrer code :");
-    } else {
-      codeEntre += key;
-      lcd.setCursor(0,1);
-      lcd.print(codeEntre);
+      lcd.print("Entrez code:");
+    }
+    else {
+      inputKey += key;
+      lcd.setCursor(0, 1);
+      lcd.print(inputKey);
     }
   }
 
-  // ------------- Capteurs -----------------
-  int flameState = (digitalRead(FLAME_PIN) == LOW) ? 1 : 0;
-  int waterState = (digitalRead(WATER_PIN) == HIGH) ? 1 : 0;
-  int gasState   = (digitalRead(GAS_PIN) == HIGH) ? 1 : 0;
+  // ===== CAPTEURS =====
+  int mq2Raw   = analogRead(mq2Pin);
+  mq2Filtered  = 0.7 * mq2Filtered + 0.3 * mq2Raw;
+  
+  int gas     = ((mq2Filtered - baseline) > GAS_THRESHOLD) ? 1 : 0;
+  int flame   = (digitalRead(flamePin) == LOW) ? 1 : 0;
+  int water   = (digitalRead(soilPin)  == LOW) ? 1 : 0;
 
-  // Actions locales
-  if (flameState) { lcd.clear(); lcd.print("🔥 Feu detecte !"); sonFlamme(); delay(500); }
-  if (waterState){ lcd.clear(); lcd.print(" Eau detectee"); sonEau();    delay(500); }
-  if (gasState)  { lcd.clear(); lcd.print(" Gaz detecte!"); sonGaz(); fenetre.write(90); delay(500); }
-  else           { fenetre.write(0); }
+  // ===== ALERTES =====
+  if (gas || flame || water) {
+    unsigned long alertStart = millis();
+    unsigned long alertDuration = 0;
 
-  // ------------- Envoi Cloudflare ----------------
-  if (flameState || waterState || gasState || (currentMillis - lastSend >= intervalSend)) {
-    sendToCloudflare(flameState, waterState, gasState);
-    lastSend = currentMillis;
+    if (gas) alertDuration = ALERT_DURATION_GAS;
+    if (flame) alertDuration = max(alertDuration, (unsigned long)ALERT_DURATION_FLAME);
+    if (water) alertDuration = max(alertDuration, (unsigned long)ALERT_DURATION_WATER);
+
+    while (millis() - alertStart < alertDuration) {
+      if (gas)   tone(buzzerPin, 1800);
+      if (flame) tone(buzzerPin, 1000);
+      if (water) tone(buzzerPin, 400);
+
+ 
+      delay(100);
+    }
+    noTone(buzzerPin);
+
+    sendToCloud("alerte", gas, flame, water, "none");
+    delay(500);
+    return;
   }
 
-  delay(200); // boucle rapide
+  // ===== ENVOI PERIODIQUE =====
+  unsigned long now = millis();
+  if (now - lastPeriodicSend >= PERIODIC_INTERVAL) {
+    sendToCloud("periodic", gas, flame, water, "none");
+    lastPeriodicSend = now;
+  }
+
+  delay(200);
 }
